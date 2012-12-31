@@ -5,6 +5,10 @@
 //     For all details and documentation:
 //     http://createjs.org/
 (function (jQuery, undefined) {
+  // Run JavaScript in strict mode
+  /*global jQuery:false _:false document:false Aloha:false */
+  'use strict';
+
   // # Aloha editing widget
   //
   // This widget allows editing textual contents using the
@@ -13,36 +17,52 @@
   // Due to licensing incompatibilities, Aloha Editor needs to be installed
   // and configured separately.
   jQuery.widget('Create.alohaWidget', jQuery.Create.editWidget, {
+    _initialize: function () {},
     enable: function () {
-      this._initialize();
-      this.options.disabled = false;
-    },
-    disable: function () {
-      try {
-        options.editable.destroy();
-      } catch (err) {}
-      this.options.disabled = true;
-    },
-    _initialize: function () {
       var options = this.options;
-      var editable = new Aloha.jQuery(options.element.get(0)).aloha();
+      var editable;
+      var currentElement = Aloha.jQuery(options.element.get(0)).aloha();
+      _.each(Aloha.editables, function (aloha) {
+        // Find the actual editable instance so we can hook to the events
+        // correctly
+        if (aloha.obj.get(0) === currentElement.get(0)) {
+          editable = aloha;
+        }
+      });
+      if (!editable) {
+        return;
+      }
       editable.vieEntity = options.entity;
 
       // Subscribe to activation and deactivation events
-      Aloha.bind('aloha-editable-activated', function () {
+      Aloha.bind('aloha-editable-activated', function (event, data) {
+        if (data.editable !== editable) {
+          return;
+        }
         options.activated();
       });
-      Aloha.bind('aloha-editable-deactivated', function () {
+      Aloha.bind('aloha-editable-deactivated', function (event, data) {
+        if (data.editable !== editable) {
+          return;
+        }
         options.deactivated();
       });
 
       Aloha.bind('aloha-smart-content-changed', function (event, data) {
+        if (data.editable !== editable) {
+          return;
+        }
         if (!data.editable.isModified()) {
           return true;
         }
-        options.modified(data.editable.getContents());
+        options.changed(data.editable.getContents());
         data.editable.setUnmodified();
       });
+      this.options.disabled = false;
+    },
+    disable: function () {
+      Aloha.jQuery(this.options.element.get(0)).mahalo();
+      this.options.disabled = true;
     }
   });
 })(jQuery);

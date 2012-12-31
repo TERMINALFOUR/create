@@ -4,6 +4,10 @@
 //     For all details and documentation:
 //     http://createjs.org/
 (function (jQuery, undefined) {
+  // Run JavaScript in strict mode
+  /*global jQuery:false _:false document:false */
+  'use strict';
+
   // # Redactor editing widget
   //
   // This widget allows editing textual content areas with the
@@ -28,11 +32,11 @@
 
     _initialize: function () {
       var self = this;
-      jQuery(this.element).bind('focus', function (event) {
+      jQuery(this.element).on('focus', function (event) {
         self.options.activated(); 
       });
       /*
-      jQuery(this.element).bind('blur', function (event) {
+      jQuery(this.element).on('blur', function (event) {
         self.options.deactivated(); 
       });
       */
@@ -42,10 +46,10 @@
       var self = this;
       var overrides = {
         keyupCallback: function (obj, event) {
-          self.options.modified(jQuery(self.element).getCode());
+          self.options.changed(jQuery(self.element).getCode());
         },
         execCommandCallback: function (obj, command) {
-          self.options.modified(jQuery(self.element).getCode());
+          self.options.changed(jQuery(self.element).getCode());
         }
       };
 

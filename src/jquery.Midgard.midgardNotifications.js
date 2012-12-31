@@ -25,6 +25,10 @@
  });
  */
 (function (jQuery, undefined) {
+  // Run JavaScript in strict mode
+  /*global jQuery:false _:false window:false Backbone:false document:false */
+  'use strict';
+
   var _midgardnotifications_active = [];
   var MidgardNotification = function (parent, options) {
       var _defaults = {
@@ -113,7 +117,7 @@
             actions_holder.appendTo(inner);
             jQuery.each(_config.actions, function (i, opts) {
               var action = jQuery('<button name="' + opts.name + '" class="button-' + opts.name + '">' + opts.label + '</button>').button();
-              action.bind('click', function (e) {
+              action.on('click', function (e) {
                 if (_story) {
                   opts.cb(e, _story, _self);
                 } else {
@@ -128,7 +132,7 @@
             });
           }
 
-          _item.bind('click', function (e) {
+          _item.on('click', function (e) {
             if (_config.callbacks.onClick) {
               _config.callbacks.onClick(e, _self);
             } else {
@@ -222,12 +226,17 @@
           if (element.css('position') === 'fixed') {
             return true;
           }
-          return this._isFixed(element.offsetParent());
+          var parentElement = element.offsetParent();
+          if (parentElement.get(0) === element.get(0)) {
+            return false;
+          }
+          return this._isFixed(parentElement);
         },
 
         _setPosition: function () {
+          var pos;
           if (_config.bindTo) {
-            itemDimensions = {
+            var itemDimensions = {
               width: _item.width() ? _item.width() : 280,
               height: _item.height() ? _item.height() : 109
             };
@@ -250,7 +259,7 @@
               targetDimensions.top = _bind_target.offset().top;
             }
             
-            var pos = this._calculatePositionForGravity(_item, _config.gravity, targetDimensions, itemDimensions);
+            pos = this._calculatePositionForGravity(_item, _config.gravity, targetDimensions, itemDimensions);
             properties.top = pos.top;
             properties.left = pos.left;
 
@@ -268,6 +277,7 @@
             position: 'fixed'
           };
 
+          var item;
           var activeHeight = function (items) {
             var total_height = 0;
             jQuery.each(items, function (i, item) {
@@ -321,7 +331,7 @@
           }
 
           if (_config.timeout > 0 && !_config.actions.length) {
-            setTimeout(function () {
+            window.setTimeout(function () {
               self.close();
             }, _config.timeout);
           }
@@ -389,6 +399,7 @@
       var _previous_item_name = null;
       var _first_item_name = null;
       var _last_item_name = null;
+      var _current_item = null;
 
       var base = {
         constructor: function (options) {
@@ -457,7 +468,7 @@
 
             if (item.show_actions) {
               if (item.back) {
-                back_label = item.back_label;
+                var back_label = item.back_label;
                 if (!back_label) {
                   back_label = 'Back';
                 }
@@ -471,7 +482,7 @@
               }
 
               if (item.forward) {
-                forward_label = item.forward_label;
+                var forward_label = item.forward_label;
                 if (!forward_label) {
                   forward_label = 'Back';
                 }
@@ -513,7 +524,7 @@
         next: function () {
           _current_item.close();
           if (_storyline[_current_item.name].forward) {
-            next_item = _storyline[_current_item.name].forward;
+            var next_item = _storyline[_current_item.name].forward;
             this._showNotification(_storyline[next_item]);
           } else {
             this._showNotification(_storyline[_last_item_name]);
@@ -523,7 +534,7 @@
           if (_previous_item_name) {
             _current_item.close();
             if (_storyline[_current_item.name].back) {
-              prev_item = _storyline[_current_item.name].back;
+              var prev_item = _storyline[_current_item.name].back;
               this._showNotification(_storyline[prev_item]);
             } else {
               this._showNotification(_storyline[_previous_item_name]);
@@ -568,10 +579,10 @@
       forward: 'edit_button',
       show_actions: false,
       afterShow: function (notification, story) {
-        jQuery('body').bind('midgardtoolbarstatechange', function (event, options) {
+        jQuery('body').on('midgardtoolbarstatechange', function (event, options) {
           if (options.display == 'full') {
             story.next();
-            jQuery('body').unbind('midgardtoolbarstatechange');
+            jQuery('body').off('midgardtoolbarstatechange');
           }
         });
       },
@@ -585,10 +596,10 @@
       content: 'This is the edit button.<br />Try it now.',
       show_actions: false,
       afterShow: function (notification, story) {
-        jQuery('body').bind('midgardcreatestatechange', function (event, options) {
+        jQuery('body').on('midgardcreatestatechange', function (event, options) {
           if (options.state == 'edit') {
             story.next();
-            jQuery('body').unbind('midgardcreatestatechange');
+            jQuery('body').off('midgardcreatestatechange');
           }
         });
       },
@@ -646,7 +657,7 @@
     create: function (options) {
       options = jQuery.extend({}, this.options.notification_defaults, options || {});
 
-      item = new MidgardNotification(this.container, options);
+      var item = new MidgardNotification(this.container, options);
       item.show();
 
       return item;

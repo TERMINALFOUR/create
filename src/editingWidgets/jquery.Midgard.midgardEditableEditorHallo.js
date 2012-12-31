@@ -4,6 +4,10 @@
 //     For all details and documentation:
 //     http://createjs.org/
 (function (jQuery, undefined) {
+  // Run JavaScript in strict mode
+  /*global jQuery:false _:false document:false */
+  'use strict';
+
   // # Hallo editing widget
   //
   // This widget allows editing textual content areas with the
@@ -22,33 +26,36 @@
       });
       this.options.disabled = false;
     },
+
     disable: function () {
       jQuery(this.element).hallo({
         editable: false
       });
       this.options.disabled = true;
     },
+
     _initialize: function () {
       jQuery(this.element).hallo(this.getHalloOptions());
       var self = this;
-      jQuery(this.element).bind('halloactivated', function (event, data) {
+      jQuery(this.element).on('halloactivated', function (event, data) {
         self.options.activated();
       });
-      jQuery(this.element).bind('hallodeactivated', function (event, data) {
+      jQuery(this.element).on('hallodeactivated', function (event, data) {
         self.options.deactivated();
       });
-      jQuery(this.element).bind('hallomodified', function (event, data) {
-        self.options.modified(data.content);
+      jQuery(this.element).on('hallomodified', function (event, data) {
+        self.options.changed(data.content);
         data.editable.setUnmodified();
       });
 
-      jQuery(document).bind('midgardtoolbarstatechange', function(event, data) {
+      jQuery(document).on('midgardtoolbarstatechange', function(event, data) {
         // Switch between Hallo configurations when toolbar state changes
         if (data.display === self.options.toolbarState) {
           return;
         }
         self.options.toolbarState = data.display;
-        jQuery(self.element).hallo(self.getHalloOptions());
+        var newOptions = self.getHalloOptions();
+        self.element.hallo('changeToolbar', newOptions.parentElement, newOptions.toolbar, true);
       });
     },
 
@@ -61,8 +68,7 @@
           hallolink: {},
           halloimage: {
             entity: this.options.entity
-          },
-          halloindicator: {}
+          }
         },
         buttonCssClass: 'create-ui-btn-small',
         placeholder: '[' + this.options.property + ']'
@@ -82,7 +88,7 @@
         defaults.toolbar = 'halloToolbarFixed';
       } else {
         // Tools area minimized, use floating toolbar
-        defaults.showAlways = false;
+        defaults.parentElement = 'body';
         defaults.toolbar = 'halloToolbarContextual';
       }
       return _.extend(defaults, this.options.editorOptions);
