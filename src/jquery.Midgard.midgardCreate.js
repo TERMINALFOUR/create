@@ -3,7 +3,12 @@
 //     Create may be freely distributed under the MIT license.
 //     For all details and documentation:
 //     http://createjs.org/
+
 (function (jQuery, undefined) {
+  // Run JavaScript in strict mode
+  /*global jQuery:false _:false window:false VIE:false */
+  'use strict';
+
   // # Create main widget
   //
   // The `midgardCreate` widget is the main entry point into using
@@ -17,7 +22,7 @@
   jQuery.widget('Midgard.midgardCreate', {
     // ## Configuration
     //
-    // Like most jQuery UI widgets, Create accepts various options 
+    // Like most jQuery UI widgets, Create accepts various options
     // when being instantiated.
     options: {
       // Initial toolbar rendering style: `full` or `minimized`.
@@ -33,7 +38,7 @@
       highlightColor: '#67cc08',
       // Widgets to use for editing various content types.
       editorWidgets: {
-        default: 'hallo' 
+        'default': 'hallo'
       },
       // Additional editor options.
       editorOptions: {
@@ -41,47 +46,69 @@
           widget: 'halloWidget'
         }
       },
+      // Widgets to use for managing collections.
+      collectionWidgets: {
+        'default': 'midgardCollectionAdd'
+      },
+      // URL callback used with Backbone.sync. Will be passed to the
+      // Storage widget.
       url: function () {},
+      // Prefix used for localStorage.
       storagePrefix: 'node',
+      // Workflow configuration. URL callback is used for retrieving
+      // list of workflow actions that can be initiated for an item.
       workflows: {
         url: null
       },
+      // Notifications configuration.
       notifications: {},
+      // VIE instance used with Create.js. If no VIE instance is passed,
+      // Create.js will create its own instance.
       vie: null,
+      // The VIE service used for DOM handling. By default 'rdfa'
+      domService: 'rdfa',
+      // URL for the Apache Stanbol service used for annotations, and tag
+      // and image suggestions.
       stanbolUrl: null,
+      // URL for the DBpedia instance used for finding more information
+      // about annotations and tags.
       dbPediaUrl: null,
-      tags: false
+      // Configuration for the metadata editor. If no widgets are enabled,
+      // then the metadata editor will not be loaded.
+      metadata: {},
+      // Selector for element where Create.js will place its buttons, like
+      // Save and Edit/Cancel.
+      buttonContainer: '.create-ui-toolbar-statustoolarea .create-ui-statustools',
+      // Templates used for UI elements of the Create widget
+      templates: {
+        buttonContent: '<%= label %> <i class="icon-<%= icon %>"></i>',
+        button: '<li id="<%= id %>"><a class="create-ui-btn"><%= buttonContent %></a></li>'
+      },
+      // Localization callback function. Will be run in the widget context.
+      // Override to connect Create.js with your own localization system
+      localize: function (id, language) {
+        return window.midgardCreate.localize(id, language);
+      },
+      // Language used for Create.js. Will be retrieved from page lang attrib
+      // if left blank
+      language: null
     },
 
     _create: function () {
-      if (this.options.vie) {
-        this.vie = this.options.vie;
-      } else {
-        this.vie = new VIE();
-
-        this.vie.use(new this.vie.RdfaService());
-
-        if (this.options.stanbolUrl) {
-          this.vie.use(new this.vie.StanbolService({
-            proxyDisabled: true,
-            url: this.options.stanbolUrl
-          }));
-        }
-
-        if (this.options.dbPediaUrl) {
-          this.vie.use(new this.vie.DBPediaService({
-            proxyDisabled: true,
-            url: this.options.dbPediaUrl
-          }));
-        }
-      }
+      this.vie = this._setupVIE(this.options);
+      this.domService = this.vie.service(this.options.domService);
 
       var widget = this;
       window.setTimeout(function () {
         widget._checkSession();
       }, 10);
 
+      if (!this.options.language) {
+        this.options.language = jQuery('html').attr('lang');
+      }
+
       this._enableToolbar();
+      this._enableMetadata();
       this._saveButton();
       this._editButton();
       this._prepareStorage();
@@ -93,36 +120,111 @@
       if (this.element.midgardNotifications) {
         this.element.midgardNotifications(this.options.notifications);
       }
+
+      this._bindShortcuts();
+    },
+
+    destroy: function () {
+      // Clean up on widget destruction
+      this.element.midgardStorage('destroy');
+      this.element.midgardToolbar('destroy');
+
+      this.domService.findSubjectElements(this.element).each(function () {
+        jQuery(this).midgardEditable('destroy');
+      });
+
+      // Conditional widgets
+      if (this.element.midgardWorkflows) {
+        this.element.midgardWorkflows('destroy');
+      }
+      if (this.element.midgardNotifications) {
+        this.element.midgardNotifications('destroy');
+      }
+      if (!_.isEmpty(this.options.metadata)) {
+        this.element.midgardMetadata('destroy');
+      }
+      // TODO: use _destroy in jQuery UI 1.9 and above
+      jQuery.Widget.prototype.destroy.call(this);
+    },
+
+    _setupVIE: function (options) {
+      var vie;
+      if (options.vie) {
+        vie = options.vie;
+      } else {
+        // Set up our own VIE instance
+        vie = new VIE();
+      }
+
+      if (!vie.hasService(this.options.domService) && this.options.domService === 'rdfa') {
+        vie.use(new vie.RdfaService());
+      }
+
+      if (!vie.hasService('stanbol') && options.stanbolUrl) {
+        vie.use(new vie.StanbolService({
+          proxyDisabled: true,
+          url: options.stanbolUrl
+        }));
+      }
+
+      if (!vie.hasService('dbpedia') && options.dbPediaUrl) {
+        vie.use(new vie.DBPediaService({
+          proxyDisabled: true,
+          url: options.dbPediaUrl
+        }));
+      }
+
+      return vie;
     },
 
     _prepareStorage: function () {
       this.element.midgardStorage({
         vie: this.vie,
-        url: this.options.url
+        url: this.options.url,
+        localize: this.options.localize,
+        language: this.options.language
       });
 
-      this.element.bind('midgardstoragesave', function () {
-        jQuery('#midgardcreate-save a').html('Saving <i class="icon-upload"></i>');
+      var widget = this;
+      this.element.on('midgardstoragesave', function () {
+        jQuery('#midgardcreate-save a').html(_.template(widget.options.templates.buttonContent, {
+          label: widget.options.localize('Saving', widget.options.language),
+          icon: 'upload'
+        }));
       });
 
-      this.element.bind('midgardstoragesaved midgardstorageerror', function () {
-        jQuery('#midgardcreate-save a').html('Save <i class="icon-ok"></i>');
+      this.element.on('midgardstoragesaved midgardstorageerror', function () {
+        jQuery('#midgardcreate-save a').html(_.template(widget.options.templates.buttonContent, {
+          label: widget.options.localize('Save', widget.options.language),
+          icon: 'ok'
+        }));
       });
     },
 
     _init: function () {
-      if (this.options.state === 'edit') {
+      this.setState(this.options.state);
+
+      // jQuery(this.element).data('midgardNotifications').showTutorial();
+    },
+
+    setState: function (state) {
+      this._setOption('state', state);
+      if (state === 'edit') {
         this._enableEdit();
       } else {
         this._disableEdit();
       }
+      this._setEditButtonState(state);
+    },
 
-      // jQuery(this.element).data('midgardNotifications').showTutorial();            
+    setToolbar: function (state) {
+      this.options.toolbar = state;
+      this.element.midgardToolbar('setDisplay', state);
     },
 
     showNotification: function (options) {
       if (this.element.midgardNotifications) {
-        return jQuery(this.element).data('midgardNotifications').create(options);
+        return this.element.midgardNotifications('create', options);
       }
     },
 
@@ -148,22 +250,62 @@
     },
 
     _checkSession: function () {
-      if (!Modernizr.sessionstorage) {
+      if (!window.sessionStorage) {
         return;
       }
 
       var toolbarID = this.options.storagePrefix + 'Midgard.create.toolbar';
-      if (sessionStorage.getItem(toolbarID)) {
-        this._setOption('toolbar', sessionStorage.getItem(toolbarID));
+      if (window.sessionStorage.getItem(toolbarID)) {
+        this.setToolbar(window.sessionStorage.getItem(toolbarID));
       }
 
       var stateID = this.options.storagePrefix + 'Midgard.create.state';
-      if (sessionStorage.getItem(stateID)) {
-        this._setOption('state', sessionStorage.getItem(stateID));
+      if (window.sessionStorage.getItem(stateID)) {
+        this.setState(window.sessionStorage.getItem(stateID));
       }
 
-      this.element.bind('midgardcreatestatechange', function (event, options) {
-        sessionStorage.setItem(stateID, options.state);
+      this.element.on('midgardcreatestatechange', function (event, options) {
+        window.sessionStorage.setItem(stateID, options.state);
+      });
+    },
+
+    _bindShortcuts: function () {
+      if (!window.Mousetrap) {
+        // Keyboard shortcuts are optional and only activated if Mousetrap
+        // library is available
+        return;
+      }
+
+      var widget = this;
+      // Ctrl-e enters edit state
+      window.Mousetrap.bind(['command+e', 'ctrl+e'], function () {
+        if (widget.options.state === 'edit') {
+          return;
+        }
+        widget.setState('edit');
+      });
+
+      // Esc leaves edit state
+      window.Mousetrap.bind('esc', function (event) {
+        if (widget.options.state === 'browse') {
+          return;
+        }
+        // Stop event from propagating so that possible active editable
+        // doesn't get falsely triggered
+        event.stopPropagation();
+        widget.setState('browse');
+      });
+
+      // Ctrl-s saves
+      window.Mousetrap.bind(['command+s', 'ctrl+s'], function (event) {
+        event.preventDefault();
+        if (!widget.options.saveButton) {
+          return;
+        }
+        if (widget.options.saveButton.hasClass('ui-state-disabled')) {
+          return;
+        }
+        widget.options.saveButton.click();
       });
     },
 
@@ -171,43 +313,89 @@
       if (this.options.saveButton) {
         return this.options.saveButton;
       }
-
-      jQuery('.create-ui-toolbar-statustoolarea .create-ui-statustools', this.element).append(jQuery('<li id="midgardcreate-save"><a class="create-ui-btn">Save <i class="icon-ok"></i></a></li>'));
+      var widget = this;
+      jQuery(this.options.buttonContainer, this.element).append(jQuery(_.template(this.options.templates.button, {
+        id: 'midgardcreate-save',
+        buttonContent: _.template(this.options.templates.buttonContent, {
+          label: widget.options.localize('Save', widget.options.language),
+          icon: 'ok'
+        })
+      })));
       this.options.saveButton = jQuery('#midgardcreate-save', this.element);
       this.options.saveButton.hide();
-      return this.options.saveButton;
+
+      this.options.saveButton.click(function () {
+        widget.element.midgardStorage('saveRemoteAll');
+      });
+
+      this.element.on('midgardeditablechanged midgardstorageloaded', function () {
+        widget.options.saveButton.button({
+          disabled: false
+        });
+      });
+
+      this.element.on('midgardstoragesaved', function () {
+        widget.options.saveButton.button({
+          disabled: true
+        });
+      });
+
+      this.element.on('midgardeditableenable', function () {
+        widget.options.saveButton.button({
+          disabled: true
+        });
+        widget.options.saveButton.show();
+      });
+
+      this.element.on('midgardeditabledisable', function () {
+        widget.options.saveButton.hide();
+      });
     },
 
     _editButton: function () {
       var widget = this;
-      var buttonContents = {
-        edit: '<a class="create-ui-btn">Cancel <i class="icon-remove"></i></a>',
-        browse: '<a class="create-ui-btn">Edit <i class="icon-edit"></i></a>'
-      };
-
-      jQuery('.create-ui-toolbar-statustoolarea .create-ui-statustools', this.element).append(jQuery('<li id="midgardcreate-edit">' + buttonContents[widget.options.state] + '</li>'));
-      var editButton = jQuery('#midgardcreate-edit', this.element);
-      if (this.options.state === 'edit') {
-        editButton.addClass('selected');
-      }
-      editButton.bind('click', function () {
+      jQuery(this.options.buttonContainer, this.element).append(jQuery(_.template(this.options.templates.button, {
+        id: 'midgardcreate-edit',
+        buttonContent: ''
+      })));
+      jQuery('#midgardcreate-edit', this.element).on('click', function () {
         if (widget.options.state === 'edit') {
-          widget._disableEdit();
-          editButton.html(buttonContents[widget.options.state]);
+          widget.setState('browse');
           return;
         }
-        widget._enableEdit();
-        editButton.html(buttonContents[widget.options.state]);
+        widget.setState('edit');
       });
+    },
+
+    _setEditButtonState: function (state) {
+      var widget = this;
+      var buttonContents = {
+        edit: _.template(this.options.templates.buttonContent, {
+          label: widget.options.localize('Cancel', widget.options.language),
+          icon: 'remove'
+        }),
+        browse: _.template(this.options.templates.buttonContent, {
+          label: widget.options.localize('Edit', widget.options.language),
+          icon: 'edit'
+        })
+      };
+      var editButton = jQuery('#midgardcreate-edit a', this.element);
+      if (!editButton) {
+        return;
+      }
+      if (state === 'edit') {
+        editButton.addClass('selected');
+      }
+      editButton.html(buttonContents[state]);
     },
 
     _enableToolbar: function () {
       var widget = this;
-      this.element.bind('midgardtoolbarstatechange', function (event, options) {
-        if (Modernizr.sessionstorage) {
-          sessionStorage.setItem(widget.options.storagePrefix + 'Midgard.create.toolbar', options.display);
+      this.element.on('midgardtoolbarstatechange', function (event, options) {
+        widget.setToolbar(options.display);
+        if (window.sessionStorage) {
+          window.sessionStorage.setItem(widget.options.storagePrefix + 'Midgard.create.toolbar', options.display);
         }
-        widget._setOption('toolbar', options.display);
       });
 
       this.element.midgardToolbar({
@@ -216,23 +404,42 @@
       });
     },
 
+    _enableMetadata: function () {
+      if (_.isEmpty(this.options.metadata)) {
+        return;
+      }
+
+      jQuery('.create-ui-tool-metadataarea', this.element).midgardMetadata({
+        vie: this.vie,
+        localize: this.options.localize,
+        language: this.options.language,
+        editors: this.options.metadata,
+        createElement: this.element,
+        editableNs: 'midgardeditable'
+      });
+    },
+
     _enableEdit: function () {
       this._setOption('state', 'edit');
       var widget = this;
       var editableOptions = {
-        toolbarState: widget.options.display,
+        toolbarState: widget.options.toolbar,
         disabled: false,
         vie: widget.vie,
+        domService: widget.options.domService,
         widgets: widget.options.editorWidgets,
-        editors: widget.options.editorOptions
+        editors: widget.options.editorOptions,
+        collectionWidgets: widget.options.collectionWidgets,
+        localize: widget.options.localize,
+        language: widget.options.language
       };
       if (widget.options.enableEditor) {
-        editableOptions[enableEditor] = widget.options.enableEditor;
+        editableOptions.enableEditor = widget.options.enableEditor;
       }
       if (widget.options.disableEditor) {
-        editableOptions[disableEditor] = widget.options.disableEditor;
+        editableOptions.disableEditor = widget.options.disableEditor;
       }
-      jQuery('[about]', this.element).each(function () {
+      this.domService.findSubjectElements(this.element).each(function () {
         var element = this;
         if (widget.options.highlight) {
           var highlightEditable = function (event, options) {
@@ -245,27 +452,26 @@
                 return;
               }
 
+              if (window.Mousetrap) {
+                // contentEditable and form fields require special handling
+                // to allow keyboard shortcuts to work
+                options.element.addClass('mousetrap');
+              }
+
+              // Ensure other animations are stopped before proceeding
+              options.element.stop(true, true);
+
               // Highlight the editable
               options.element.effect('highlight', {
                 color: widget.options.highlightColor
               }, 3000);
             };
 
-          jQuery(this).bind('midgardeditableenableproperty', highlightEditable);
+          jQuery(this).on('midgardeditableenableproperty', highlightEditable);
         }
-        jQuery(this).bind('midgardeditabledisable', function () {
-          jQuery(this).unbind('midgardeditableenableproperty', highlightEditable);
+        jQuery(this).on('midgardeditabledisable', function () {
+          jQuery(this).off('midgardeditableenableproperty', highlightEditable);
         });
-
-        if (widget.options.tags) {
-          jQuery(this).bind('midgardeditableenable', function (event, options) {
-            jQuery(this).midgardTags({
-              vie: widget.vie,
-              entityElement: options.entityElement,
-              entity: options.instance
-            });
-          });
-        }
 
         jQuery(this).midgardEditable(editableOptions);
       });
@@ -280,9 +486,12 @@
       var editableOptions = {
         disabled: true,
         vie: widget.vie,
-        editorOptions: widget.options.editorOptions
+        domService: widget.options.domService,
+        editorOptions: widget.options.editorOptions,
+        localize: widget.options.localize,
+        language: widget.options.language
       };
-      jQuery('[about]', this.element).each(function () {
+      this.domService.findSubjectElements(this.element).each(function () {
         jQuery(this).midgardEditable(editableOptions);
         jQuery(this).removeClass('ui-state-disabled');
       });
